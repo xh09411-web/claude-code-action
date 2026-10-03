@@ -122,6 +122,7 @@ export function prepareContext(
 
   // Extract trigger username and comment data based on event type
   let triggerUsername: string | undefined;
+  let triggerUserId: number | undefined;
   let commentId: string | undefined;
   let commentBody: string | undefined;
 
@@ -129,15 +130,19 @@ export function prepareContext(
     commentId = context.payload.comment.id.toString();
     commentBody = context.payload.comment.body;
     triggerUsername = context.payload.comment.user.login;
+    triggerUserId = context.payload.comment.user.id;
   } else if (isPullRequestReviewEvent(context)) {
     commentBody = context.payload.review.body ?? "";
     triggerUsername = context.payload.review.user.login;
+    triggerUserId = context.payload.review.user.id;
   } else if (isPullRequestReviewCommentEvent(context)) {
     commentId = context.payload.comment.id.toString();
     commentBody = context.payload.comment.body;
     triggerUsername = context.payload.comment.user.login;
+    triggerUserId = context.payload.comment.user.id;
   } else if (isIssuesEvent(context)) {
     triggerUsername = context.payload.issue.user.login;
+    triggerUserId = context.payload.issue.user.id;
   }
 
   // Create infrastructure fields object
@@ -146,6 +151,7 @@ export function prepareContext(
     claudeCommentId,
     triggerPhrase,
     ...(triggerUsername && { triggerUsername }),
+    ...(triggerUserId && { triggerUserId }),
     ...(prompt && { prompt }),
     ...(claudeBranch && { claudeBranch }),
   };
@@ -394,9 +400,16 @@ function getCommitInstructions(
   context: PreparedContext,
   useCommitSigning: boolean,
 ): string {
+  const triggerName = githubData.triggerDisplayName ?? context.triggerUsername;
+  const triggerEmail =
+    context.triggerUserId && context.triggerUsername
+      ? `${context.triggerUserId}+${context.triggerUsername}@users.noreply.github.com`
+      : context.triggerUsername
+        ? `${context.triggerUsername}@users.noreply.github.com`
+        : undefined;
   const coAuthorLine =
-    (githubData.triggerDisplayName ?? context.triggerUsername) !== "Unknown"
-      ? `Co-authored-by: ${githubData.triggerDisplayName ?? context.triggerUsername} <${context.triggerUsername}@users.noreply.github.com>`
+    triggerName && triggerName !== "Unknown" && triggerEmail
+      ? `Co-authored-by: ${triggerName} <${triggerEmail}>`
       : "";
 
   if (useCommitSigning) {
@@ -811,7 +824,7 @@ ${
     ? `- Use mcp__github_file_ops__commit_files for making commits (works for both new and existing files, single or multiple). Use mcp__github_file_ops__delete_files for deleting files (supports deleting single or multiple files atomically), or mcp__github__delete_file for deleting a single file. Edit files locally, and the tool will read the content from the same path on disk.
   Tool usage examples:
   - mcp__github_file_ops__commit_files: {"files": ["path/to/file1.js", "path/to/file2.py"], "message": "feat: add new feature"}
-  - mcp__github_file_ops__delete_files: {"files": ["path/to/old.js"], "message": "chore: remove deprecated file"}`
+  - mcp__github_file_ops__delete_files: {"paths": ["path/to/old.js"], "message": "chore: remove deprecated file"}`
     : `- Use git commands via the Bash tool for version control (remember that you have access to these git commands):
   - Stage files: Bash(git add <files>)
   - Commit changes: Bash(git commit -m "<message>")
@@ -843,7 +856,7 @@ What You CANNOT Do:
 - Submit formal GitHub PR reviews
 - Approve pull requests (for security reasons)
 - Post multiple comments (you only update your initial comment)
-- Execute commands outside the repository context${useCommitSigning ? "\n- Run arbitrary Bash commands (unless explicitly allowed via allowed_tools configuration)" : ""}
+- Execute commands outside the repository context${useCommitSigning ? "\n- Run arbitrary Bash commands (unless explicitly allowed via claude_args with --allowedTools)" : ""}
 - Perform branch operations (cannot merge branches, rebase, or perform other git operations beyond creating and pushing commits)
 - Modify files in the .github/workflows directory (GitHub App permissions do not allow workflow modifications)
 
